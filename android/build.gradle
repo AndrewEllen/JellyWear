@@ -1,0 +1,28 @@
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.buildDir = "../build"
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
+
+// Fix for wear plugin missing namespace (required for AGP 8.0+)
+gradle.projectsEvaluated {
+    def wearProject = rootProject.subprojects.find { it.name == "wear" }
+    if (wearProject != null && wearProject.hasProperty("android")) {
+        wearProject.android {
+            namespace = "com.mjohnsullivan.flutterwear.wear"
+        }
+    }
+}
