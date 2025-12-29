@@ -12,7 +12,9 @@ import '../widgets/common/wear_list_view.dart';
 
 /// Screen for selecting a target Jellyfin session to control.
 class SessionPickerScreen extends StatefulWidget {
-  const SessionPickerScreen({super.key});
+  final SessionPickerArgs? args;
+
+  const SessionPickerScreen({super.key, this.args});
 
   @override
   State<SessionPickerScreen> createState() => _SessionPickerScreenState();
@@ -30,14 +32,19 @@ class _SessionPickerScreenState extends State<SessionPickerScreen> {
   }
 
   Future<void> _selectSession(SessionDevice session) async {
+    final itemIdToPlay = widget.args?.itemIdToPlay;
+    final itemName = widget.args?.itemName;
+
     JellyfinConstants.log(
-      'SessionPicker._selectSession(): '
-      'sessionId=${session.sessionId} '
-      'deviceName=${session.deviceName} '
-      'client=${session.client} '
-      'supportsRemoteControl=${session.supportsRemoteControl} '
-      'supportsMediaControl=${session.supportsMediaControl} '
-      'nowPlaying=${session.nowPlayingItemName}',
+      '========== SESSION SELECTED ==========\n'
+      '  sessionId: ${session.sessionId}\n'
+      '  deviceName: ${session.deviceName}\n'
+      '  client: ${session.client}\n'
+      '  supportsRemoteControl: ${session.supportsRemoteControl}\n'
+      '  supportsMediaControl: ${session.supportsMediaControl}\n'
+      '  nowPlaying: ${session.nowPlayingItemName}\n'
+      '  itemIdToPlay: $itemIdToPlay\n'
+      '  itemName: $itemName',
     );
 
     // Update both SessionState AND RemoteState with the target session
@@ -46,6 +53,15 @@ class _SessionPickerScreenState extends State<SessionPickerScreen> {
 
     await sessionState.setTargetSession(session);
     remoteState.setTargetSession(session);
+
+    // If an item ID was passed, play it on the selected session
+    if (itemIdToPlay != null && itemIdToPlay.isNotEmpty) {
+      JellyfinConstants.log(
+        'Playing item $itemIdToPlay ($itemName) on session ${session.sessionId}',
+      );
+      final success = await sessionState.playOnTarget([itemIdToPlay]);
+      JellyfinConstants.log('Play command result: $success');
+    }
 
     if (!mounted) return;
     Navigator.pushNamed(context, AppRoutes.remote);

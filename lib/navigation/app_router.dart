@@ -62,7 +62,8 @@ class AppRouter {
         return _buildRoute(ItemDetailScreen(args: args), settings);
 
       case AppRoutes.sessionPicker:
-        return _buildRoute(const SessionPickerScreen(), settings);
+        final args = settings.arguments as SessionPickerArgs?;
+        return _buildRoute(SessionPickerScreen(args: args), settings);
 
       case AppRoutes.remote:
         return _buildRoute(const RemoteScreen(), settings);
@@ -138,5 +139,19 @@ class TrackPickerArgs {
 
   const TrackPickerArgs({
     required this.isAudio,
+  });
+}
+
+/// Arguments for the session picker screen.
+class SessionPickerArgs {
+  /// Item ID to play after session selection (optional).
+  final String? itemIdToPlay;
+
+  /// Item name for display (optional).
+  final String? itemName;
+
+  const SessionPickerArgs({
+    this.itemIdToPlay,
+    this.itemName,
   });
 }

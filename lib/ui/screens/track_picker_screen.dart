@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import '../../core/constants/jellyfin_constants.dart';
 import '../../core/theme/wear_theme.dart';
 import '../../core/utils/watch_shape.dart';
+import '../../data/models/playback_state.dart';
 import '../../navigation/app_router.dart';
+import '../../state/remote_state.dart';
 import '../widgets/common/wear_list_view.dart';
 
 /// Screen for selecting audio or subtitle tracks.
@@ -18,7 +22,7 @@ class TrackPickerScreen extends StatefulWidget {
 class _TrackPickerScreenState extends State<TrackPickerScreen> {
   bool _isLoading = true;
   final List<_Track> _tracks = [];
-  int _selectedIndex = 0;
+  int _selectedIndex = -1;
 
   bool get isAudio => widget.args?.isAudio ?? true;
 
@@ -28,31 +32,80 @@ class _TrackPickerScreenState extends State<TrackPickerScreen> {
     _loadTracks();
   }
 
-  Future<void> _loadTracks() async {
-    // TODO: Load tracks from current playback state
-    await Future.delayed(const Duration(milliseconds: 300));
+  void _loadTracks() {
+    final remoteState = context.read<RemoteState>();
+    final playbackState = remoteState.playbackState;
 
-    if (!mounted) return;
+    JellyfinConstants.log(
+      '========== LOAD TRACKS ==========\n'
+      '  isAudio: $isAudio\n'
+      '  audioStreams: ${playbackState.audioStreams.length}\n'
+      '  subtitleStreams: ${playbackState.subtitleStreams.length}\n'
+      '  currentAudioIndex: ${playbackState.audioStreamIndex}\n'
+      '  currentSubtitleIndex: ${playbackState.subtitleStreamIndex}',
+    );
+
+    final List<MediaStream> streams;
+    final int? currentIndex;
+
+    if (isAudio) {
+      streams = playbackState.audioStreams;
+      currentIndex = playbackState.audioStreamIndex;
+    } else {
+      streams = playbackState.subtitleStreams;
+      currentIndex = playbackState.subtitleStreamIndex;
+    }
 
     setState(() {
       _isLoading = false;
-      // TODO: Populate with actual tracks from playback state
+
+      // For subtitles, add "None" option first
       if (!isAudio) {
-        // Add "None" option for subtitles
         _tracks.add(_Track(index: -1, name: 'None', language: ''));
       }
+
+      // Add all available tracks
+      for (final stream in streams) {
+        _tracks.add(_Track(
+          index: stream.index,
+          name: stream.name,
+          language: stream.language ?? '',
+        ));
+
+        JellyfinConstants.log(
+          '  Track: index=${stream.index} name=${stream.name} lang=${stream.language}',
+        );
+      }
+
+      // Set current selection
+      _selectedIndex = currentIndex ?? (isAudio ? 0 : -1);
     });
+
+    JellyfinConstants.log('Loaded ${_tracks.length} tracks, selected=$_selectedIndex');
   }
 
   Future<void> _selectTrack(_Track track) async {
     HapticFeedback.mediumImpact();
 
+    final remoteState = context.read<RemoteState>();
+
+    JellyfinConstants.log(
+      '========== SELECT TRACK ==========\n'
+      '  isAudio: $isAudio\n'
+      '  trackIndex: ${track.index}\n'
+      '  trackName: ${track.name}',
+    );
+
     setState(() => _selectedIndex = track.index);
 
-    // TODO: Send track selection command to Jellyfin
-    // For audio: setAudioStreamIndex
-    // For subtitles: setSubtitleStreamIndex
+    // Send track selection command to Jellyfin
+    if (isAudio) {
+      await remoteState.setAudioStream(track.index);
+    } else {
+      await remoteState.setSubtitleStream(track.index);
+    }
 
+    if (!mounted) return;
     Navigator.pop(context);
   }
 

@@ -44,9 +44,22 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
   }
 
   Future<void> _playItem() async {
-    // TODO: Check for active sessions
-    // If no target session, go to session picker first
-    Navigator.pushNamed(context, AppRoutes.sessionPicker);
+    final itemId = widget.args?.itemId ?? '';
+    final itemName = _item?.name ?? widget.args?.title ?? 'Unknown';
+
+    if (itemId.isEmpty) {
+      return;
+    }
+
+    // Navigate to session picker with the item to play
+    Navigator.pushNamed(
+      context,
+      AppRoutes.sessionPicker,
+      arguments: SessionPickerArgs(
+        itemIdToPlay: itemId,
+        itemName: itemName,
+      ),
+    );
   }
 
   @override
