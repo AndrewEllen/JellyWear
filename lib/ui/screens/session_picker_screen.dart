@@ -11,7 +11,7 @@ import '../../state/session_state.dart';
 import '../widgets/common/rotary_wheel_list.dart';
 
 /// Item type for the session picker list.
-enum _SessionItemType { session, settings }
+enum _SessionItemType { session, refresh, settings }
 
 /// Wrapper for list items that can be either a session or settings.
 class _SessionListItem {
@@ -21,6 +21,10 @@ class _SessionListItem {
   const _SessionListItem.session(SessionDevice s)
       : type = _SessionItemType.session,
         session = s;
+
+  const _SessionListItem.refresh()
+      : type = _SessionItemType.refresh,
+        session = null;
 
   const _SessionListItem.settings()
       : type = _SessionItemType.settings,
@@ -106,8 +110,10 @@ class _SessionPickerScreenState extends State<SessionPickerScreen> {
 
           // Build list with sessions and settings at the end
           // Settings is always available, even with no sessions
+          // Add refresh option when no sessions found
           final items = <_SessionListItem>[
             ...sessions.map((s) => _SessionListItem.session(s)),
+            if (sessions.isEmpty) const _SessionListItem.refresh(),
             const _SessionListItem.settings(),
           ];
 
@@ -117,6 +123,9 @@ class _SessionPickerScreenState extends State<SessionPickerScreen> {
             onItemTap: (item, index) {
               if (item.type == _SessionItemType.settings) {
                 Navigator.pushNamed(context, AppRoutes.settings);
+              } else if (item.type == _SessionItemType.refresh) {
+                HapticFeedback.mediumImpact();
+                context.read<SessionState>().refreshSessions();
               } else if (item.session != null) {
                 _selectSession(item.session!);
               }
@@ -124,6 +133,9 @@ class _SessionPickerScreenState extends State<SessionPickerScreen> {
             itemBuilder: (context, item, index, isCentered) {
               if (item.type == _SessionItemType.settings) {
                 return _buildSettingsCard(isCentered);
+              }
+              if (item.type == _SessionItemType.refresh) {
+                return _buildRefreshCard(isCentered);
               }
               return _buildSessionCard(item.session!, isCentered);
             },
@@ -264,6 +276,50 @@ class _SessionPickerScreenState extends State<SessionPickerScreen> {
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     fontWeight: isCentered ? FontWeight.bold : null,
                   ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRefreshCard(bool isCentered) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isCentered ? WearTheme.surface : WearTheme.surfaceVariant,
+        borderRadius: BorderRadius.circular(16),
+        border: isCentered
+            ? Border.all(color: WearTheme.jellyfinPurple, width: 1.5)
+            : null,
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.refresh,
+            size: 28,
+            color: isCentered ? WearTheme.jellyfinPurple : WearTheme.textSecondary,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'No sessions found',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: isCentered ? FontWeight.bold : null,
+                      ),
+                ),
+                Text(
+                  'Tap to refresh',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: WearTheme.textSecondary,
+                      ),
+                ),
+              ],
             ),
           ),
         ],
