@@ -48,11 +48,25 @@ class _RemoteScreenState extends State<RemoteScreen> {
   /// Seek increment in seconds per rotary tick on seek screen
   static const int _seekRotarySeconds = 5;
 
+  // ============================================================
+  // GRID LAYOUT SETTINGS - Adjust these to tune positioning
+  // ============================================================
+
+  /// Ratio of screen size used for the control grid (0.0-1.0)
+  static const double _gridSizeRatio = 0.72;
+
+  /// Vertical offset to shift grid upward (negative = up)
+  static const double _gridVerticalOffsetRatio = -0.02;
+
+  /// Row height ratios
+  static const int _topRowFlex = 1;
+  static const int _centerRowFlex = 1; // Slightly taller for play button
+  static const int _bottomRowFlex = 1;
+
   // Local target volume while adjusting (avoids stale RemoteState base).
   int? _volumeTargetLevel;
   int? _volumePreviewLevel;
   int _lastAudibleVolume = 30;
-  DateTime? _lastRotaryEventAt;
 
 // Rate-limit outbound setVolume calls.
   static const Duration _volumeSendInterval = Duration(milliseconds: 60);
@@ -62,14 +76,12 @@ class _RemoteScreenState extends State<RemoteScreen> {
   int? _lastSentVolume;
   Timer? _volumePreviewFailsafeTimer;
 
-
   // ============================================================
 
   late PageController _pageController;
   Timer? _volumeDeflateTimer;
   bool _volumeActive = false;
   bool _showVolumePopup = false;
-  double _volumeRotaryPixelAccum = 0.0;
   StreamSubscription<RotaryEvent>? _volumeRotarySubscription;
   StreamSubscription<int>? _buttonSubscription;
 
@@ -238,9 +250,14 @@ class _RemoteScreenState extends State<RemoteScreen> {
     await context.read<RemoteState>().next();
   }
 
-  Future<void> _skipPrevious() async {
+  Future<void> _seekBackward() async {
     HapticFeedback.mediumImpact();
-    await context.read<RemoteState>().previous();
+    await context.read<RemoteState>().seekBackward(10);
+  }
+
+  Future<void> _seekForward() async {
+    HapticFeedback.mediumImpact();
+    await context.read<RemoteState>().seekForward(10);
   }
 
   void _openAudioTracks() {
@@ -268,6 +285,24 @@ class _RemoteScreenState extends State<RemoteScreen> {
       return '$hours:${(minutes % 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';
     }
     return '$minutes:${(seconds % 60).toString().padLeft(2, '0')}';
+  }
+
+  void _syncVolumePreview(int volumeLevel) {
+    final preview = _volumePreviewLevel;
+    if (preview != null && (volumeLevel - preview).abs() <= 1) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final current = context.read<RemoteState>().playbackState.volumeLevel;
+        final p = _volumePreviewLevel;
+        if (p != null && (current - p).abs() <= 1) {
+          _volumePreviewFailsafeTimer?.cancel();
+          setState(() {
+            _volumePreviewLevel = null;
+            _volumeTargetLevel = null;
+          });
+        }
+      });
+    }
   }
 
   @override
@@ -317,14 +352,10 @@ class _RemoteScreenState extends State<RemoteScreen> {
   Widget _buildRemoteControlsPage(RemoteState remoteState) {
     final playback = remoteState.playbackState;
     final isPlaying = playback.isPlaying;
-
     final volumeLevel = playback.volumeLevel;
     final displayVolumeLevel = _volumePreviewLevel ?? volumeLevel;
-
-    // Treat "muted" as either remote mute OR volume 0 (works even if mute isn’t a separate API).
     final isMutedLike = playback.isMuted || displayVolumeLevel == 0;
 
-    // Keep last audible volume updated (no setState needed).
     if (displayVolumeLevel > 0) {
       _lastAudibleVolume = displayVolumeLevel;
     }
@@ -333,183 +364,131 @@ class _RemoteScreenState extends State<RemoteScreen> {
     final positionTicks = playback.positionTicks;
     final durationTicks = playback.durationTicks ?? 0;
 
-    // If playback has caught up to the preview, release preview/target.
-    final preview = _volumePreviewLevel;
-    if (preview != null && (volumeLevel - preview).abs() <= 1) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-
-        final current = context.read<RemoteState>().playbackState.volumeLevel;
-        final p = _volumePreviewLevel;
-        if (p != null && (current - p).abs() <= 1) {
-          _volumePreviewFailsafeTimer?.cancel();
-          setState(() {
-            _volumePreviewLevel = null;
-            _volumeTargetLevel = null;
-          });
-        }
-      });
-    }
+    // Volume preview sync logic
+    _syncVolumePreview(volumeLevel);
 
     final size = MediaQuery.sizeOf(context);
-    final padding = MediaQuery.paddingOf(context);
-
-    // Inset keeps controls inside the round “safe” area.
-    final edgeInset = size.shortestSide * 0.1;
-    final top = padding.top + 16;
-    final bottom = padding.bottom + 18;
-
-    // Center controls slightly upward so bottom row doesn’t hit the clipped area.
-    final centerOffsetY = -size.shortestSide * 0.05;
+    final gridSize = size.shortestSide * _gridSizeRatio;
+    final verticalOffset = size.shortestSide * _gridVerticalOffsetRatio;
 
     final centerSecondaryText = _volumeActive
         ? (isMutedLike ? 'MUTED' : '$displayVolumeLevel%')
         : _formatTime(durationTicks);
-
-    const sideSlotWidth = 64.0;
 
     return Stack(
       fit: StackFit.expand,
       children: [
         _buildBackground(playback.nowPlayingItemId),
 
-        // Ring: progress normally, volume while actively adjusting.
+        // Progress/Volume Ring
         IgnorePointer(
           child: _volumeActive
               ? _VolumeRing(
-            volume: displayVolumeLevel,
-            isMuted: isMutedLike,
-            strokeWidth: 8,
-            edgePadding: 4,
-          )
+                  volume: displayVolumeLevel,
+                  isMuted: isMutedLike,
+                  strokeWidth: 8,
+                  edgePadding: 4,
+                )
               : PlaybackRing(
-            progress: progress,
-            strokeWidth: 6,
-            edgePadding: 4,
-          ),
+                  progress: progress,
+                  strokeWidth: 6,
+                  edgePadding: 4,
+                ),
         ),
 
-        // Top bar: volume (left), timestamp (center), skip next (right)
-        Positioned(
-          top: top,
-          left: edgeInset,
-          right: edgeInset,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              SizedBox(
-                width: sideSlotWidth,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: VolumeButton(
-                    volumeLevel: displayVolumeLevel,
-                    isMuted: isMutedLike,
-                    onTap: () => setState(() => _showVolumePopup = true),
-                    onLongPress: () => _toggleMuteLikeUser(remoteState, displayVolumeLevel),
-                  ),
-                ),
-              ),
-              Column(
-                mainAxisSize: MainAxisSize.min,
+        // 3x3 Grid Controls
+        Center(
+          child: Transform.translate(
+            offset: Offset(0, verticalOffset),
+            child: SizedBox(
+              width: gridSize,
+              height: gridSize,
+              child: Column(
                 children: [
-                  Text(
-                    _formatTime(positionTicks),
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                  // Row 1: Volume | Time | Skip Next
+                  Expanded(
+                    flex: _topRowFlex,
+                    child: _buildGridRow([
+                      _buildVolumeCell(remoteState, displayVolumeLevel, isMutedLike),
+                      _buildTimeCell(positionTicks, centerSecondaryText, isMutedLike),
+                      _buildControlCell(Icons.skip_next, _skipNext, size: 24),
+                    ]),
                   ),
-                  Text(
-                    centerSecondaryText,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: _volumeActive
-                          ? (isMutedLike ? WearTheme.textSecondary : const Color(0xFFFFD700))
-                          : WearTheme.textSecondary,
-                      fontWeight: _volumeActive ? FontWeight.bold : FontWeight.normal,
-                    ),
+                  // Row 2: Rewind | Play/Pause | Forward
+                  Expanded(
+                    flex: _centerRowFlex,
+                    child: _buildGridRow([
+                      _buildControlCell(Icons.replay_10, _seekBackward, size: 32),
+                      _buildPlayPauseCell(isPlaying),
+                      _buildControlCell(Icons.forward_10, _seekForward, size: 32),
+                    ]),
+                  ),
+                  // Row 3: CC | Audio | Stop
+                  Expanded(
+                    flex: _bottomRowFlex,
+                    child: _buildGridRow([
+                      _buildControlCell(Icons.closed_caption, _openSubtitleTracks, size: 22),
+                      _buildControlCell(Icons.audiotrack, _openAudioTracks, size: 22),
+                      _buildControlCell(Icons.stop, _stop, size: 22),
+                    ]),
                   ),
                 ],
               ),
-              SizedBox(
-                width: sideSlotWidth,
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: _ControlButton(
-                    icon: Icons.skip_next,
-                    onTap: _skipNext,
-                    size: 24,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        // Main transport: rewind/ff (wire these to your seek API) + play/pause
-        Align(
-          alignment: Alignment.center,
-          child: Transform.translate(
-            offset: Offset(0, centerOffsetY),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _ControlButton(
-                  icon: Icons.replay_10,
-                  onTap: () {
-                    // TODO: call the same seek method your SeekScreen uses (e.g. seekBySeconds(-10)).
-                    HapticFeedback.mediumImpact();
-                  },
-                  size: 32,
-                ),
-                const SizedBox(width: 12),
-                _ControlButton(
-                  icon: isPlaying ? Icons.pause : Icons.play_arrow,
-                  onTap: _playPause,
-                  size: 44,
-                  highlighted: true,
-                ),
-                const SizedBox(width: 12),
-                _ControlButton(
-                  icon: Icons.forward_10,
-                  onTap: () {
-                    // TODO: call the same seek method your SeekScreen uses (e.g. seekBySeconds(+10)).
-                    HapticFeedback.mediumImpact();
-                  },
-                  size: 32,
-                ),
-              ],
             ),
           ),
         ),
+      ],
+    );
+  }
 
-        // Bottom row: CC / Audio / Stop
-        Positioned(
-          bottom: bottom,
-          left: edgeInset,
-          right: edgeInset,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _ControlButton(
-                icon: Icons.closed_caption,
-                onTap: _openSubtitleTracks,
-                size: 22,
-              ),
-              const SizedBox(width: 18),
-              _ControlButton(
-                icon: Icons.audiotrack,
-                onTap: _openAudioTracks,
-                size: 22,
-              ),
-              const SizedBox(width: 18),
-              _ControlButton(
-                icon: Icons.stop,
-                onTap: _stop,
-                size: 22,
-              ),
-            ],
+  Widget _buildGridRow(List<Widget> cells) {
+    return Row(
+      children: cells.map((cell) => Expanded(child: Center(child: cell))).toList(),
+    );
+  }
+
+  Widget _buildVolumeCell(RemoteState remoteState, int displayVolumeLevel, bool isMutedLike) {
+    return VolumeButton(
+      volumeLevel: displayVolumeLevel,
+      isMuted: isMutedLike,
+      onTap: () => setState(() => _showVolumePopup = true),
+      onLongPress: () => _toggleMuteLikeUser(remoteState, displayVolumeLevel),
+    );
+  }
+
+  Widget _buildTimeCell(int positionTicks, String secondaryText, bool isMutedLike) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          _formatTime(positionTicks),
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          secondaryText,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: _volumeActive
+                ? (isMutedLike ? WearTheme.textSecondary : const Color(0xFFFFD700))
+                : WearTheme.textSecondary,
+            fontWeight: _volumeActive ? FontWeight.bold : FontWeight.normal,
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildControlCell(IconData icon, VoidCallback onTap, {double size = 28}) {
+    return _ControlButton(icon: icon, onTap: onTap, size: size);
+  }
+
+  Widget _buildPlayPauseCell(bool isPlaying) {
+    return _ControlButton(
+      icon: isPlaying ? Icons.pause : Icons.play_arrow,
+      onTap: _playPause,
+      size: 44,
+      highlighted: true,
     );
   }
 
