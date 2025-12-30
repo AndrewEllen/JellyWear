@@ -12,18 +12,18 @@ import '../../core/theme/wear_theme.dart';
 import '../../data/repositories/library_repository.dart';
 import '../../navigation/app_router.dart';
 import '../../state/remote_state.dart';
+import '../widgets/common/rotary_scroll_wrapper.dart';
 import '../widgets/remote/playback_ring.dart';
 import '../widgets/remote/volume_arc.dart';
+import 'media_selection_screen.dart';
+import 'seek_screen.dart';
 
 /// Main remote control screen with transport controls, playback ring, and volume arc.
 ///
 /// Features:
-/// - Blurred background from now-playing artwork
-/// - Full-circle playback progress ring at screen edge
-/// - Volume arc at top (120°) inside the playback ring
-/// - Center controls: play/pause, CC, audio, stop
-/// - Rotary controls volume
-/// - Swipe left for Seek, swipe right for Media Selection
+/// - 3-page PageView: Remote Controls, Seek, Media Selection
+/// - Page 1: Blurred background, playback ring, volume arc, controls
+/// - Rotary controls volume on page 1
 class RemoteScreen extends StatefulWidget {
   const RemoteScreen({super.key});
 
@@ -31,34 +31,46 @@ class RemoteScreen extends StatefulWidget {
   State<RemoteScreen> createState() => _RemoteScreenState();
 }
 
-class _RemoteScreenState extends State<RemoteScreen> {
-  StreamSubscription<RotaryEvent>? _rotarySubscription;
+class _RemoteScreenState extends State<RemoteScreen>
+    with RotaryScrollMixin<RemoteScreen> {
+  late PageController _pageController;
   Timer? _volumeDeflateTimer;
   bool _volumeActive = false;
+  StreamSubscription<RotaryEvent>? _volumeRotarySubscription;
+
+  @override
+  int get numberOfPages => 3;
 
   @override
   void initState() {
     super.initState();
     OngoingActivityService.start(title: 'Jellyfin Remote');
 
+    _pageController = PageController(initialPage: 0);
+    initRotaryScroll(_pageController);
+
     // Start polling playback state
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<RemoteState>().startPolling();
     });
 
-    // Rotary controls volume on this screen
-    _rotarySubscription = rotaryEvents.listen(_onRotaryEvent);
+    // Subscribe to rotary for volume control on page 0
+    _volumeRotarySubscription = rotaryEvents.listen(_onVolumeRotaryEvent);
   }
 
   @override
   void dispose() {
     _volumeDeflateTimer?.cancel();
-    _rotarySubscription?.cancel();
+    _volumeRotarySubscription?.cancel();
+    disposeRotaryScroll();
     OngoingActivityService.stop();
     super.dispose();
   }
 
-  void _onRotaryEvent(RotaryEvent event) {
+  void _onVolumeRotaryEvent(RotaryEvent event) {
+    // Only handle volume on the first page (remote controls)
+    if (currentPage != 0) return;
+
     final remoteState = context.read<RemoteState>();
     final currentVolume = remoteState.playbackState.volumeLevel;
 
@@ -96,8 +108,14 @@ class _RemoteScreenState extends State<RemoteScreen> {
     await context.read<RemoteState>().stop();
   }
 
-  void _openSeek() {
-    Navigator.pushNamed(context, AppRoutes.seek);
+  Future<void> _skipNext() async {
+    HapticFeedback.mediumImpact();
+    await context.read<RemoteState>().next();
+  }
+
+  Future<void> _skipPrevious() async {
+    HapticFeedback.mediumImpact();
+    await context.read<RemoteState>().previous();
   }
 
   void _openAudioTracks() {
@@ -114,10 +132,6 @@ class _RemoteScreenState extends State<RemoteScreen> {
       AppRoutes.trackPicker,
       arguments: const TrackPickerArgs(isAudio: false),
     );
-  }
-
-  void _openMediaSelection() {
-    Navigator.pushNamed(context, AppRoutes.mediaSelection);
   }
 
   String _formatTime(int ticks) {
@@ -137,156 +151,166 @@ class _RemoteScreenState extends State<RemoteScreen> {
       backgroundColor: WearTheme.background,
       body: Consumer<RemoteState>(
         builder: (context, remoteState, child) {
-          final playback = remoteState.playbackState;
-          final isPlaying = playback.isPlaying;
-          final isMuted = playback.isMuted;
-          final volumeLevel = playback.volumeLevel;
-          final progress = playback.progress;
-          final positionTicks = playback.positionTicks;
-          final durationTicks = playback.durationTicks ?? 0;
-
-          return GestureDetector(
-            // Swipe left to open seek
-            onHorizontalDragEnd: (details) {
-              if (details.primaryVelocity != null) {
-                if (details.primaryVelocity! < -200) {
-                  // Swipe left
-                  _openSeek();
-                } else if (details.primaryVelocity! > 200) {
-                  // Swipe right
-                  _openMediaSelection();
-                }
+          return RotaryPageView(
+            controller: _pageController,
+            onPageChanged: (index) {
+              // Clear volume active when switching pages
+              if (index != 0 && _volumeActive) {
+                setState(() => _volumeActive = false);
               }
             },
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // Blurred background image
-                _buildBackground(playback.nowPlayingItemId),
-
-                // Playback progress ring (outer)
-                PlaybackRing(
-                  progress: progress,
-                  strokeWidth: 6,
-                  edgePadding: 4,
-                ),
-
-                // Volume arc (top, inside playback ring)
-                VolumeArc(
-                  volumeLevel: volumeLevel,
-                  isMuted: isMuted,
-                  handleRotary: false, // We handle rotary in this screen
-                  onVolumeChanged: (level) {
-                    remoteState.setVolume(level);
-                    if (!_volumeActive) {
-                      setState(() => _volumeActive = true);
-                    }
-                    _scheduleVolumeDeflate();
-                  },
-                  edgePadding: 14, // Inside the playback ring
-                ),
-
-                // Center content
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Timestamp (tap to open seek)
-                        GestureDetector(
-                          onTap: _openSeek,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _formatTime(positionTicks),
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleLarge
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                              ),
-                              Text(
-                                _formatTime(durationTicks),
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                      color: WearTheme.textSecondary,
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        // Control buttons row
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            // Subtitles button
-                            _ControlButton(
-                              icon: Icons.closed_caption,
-                              onTap: _openSubtitleTracks,
-                              size: 28,
-                            ),
-
-                            // Play/Pause button (larger, highlighted)
-                            _ControlButton(
-                              icon: isPlaying ? Icons.pause : Icons.play_arrow,
-                              onTap: _playPause,
-                              size: 40,
-                              highlighted: true,
-                            ),
-
-                            // Audio tracks button
-                            _ControlButton(
-                              icon: Icons.audiotrack,
-                              onTap: _openAudioTracks,
-                              size: 28,
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 8),
-
-                        // Stop button
-                        _ControlButton(
-                          icon: Icons.stop,
-                          onTap: _stop,
-                          size: 24,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // Volume active indicator (shows when adjusting volume)
-                if (_volumeActive)
-                  Positioned(
-                    top: 32,
-                    left: 0,
-                    right: 0,
-                    child: Text(
-                      isMuted ? 'MUTED' : '$volumeLevel%',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: isMuted
-                            ? WearTheme.textSecondary
-                            : const Color(0xFFFFD700),
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+            children: [
+              // Page 1: Remote Controls
+              _buildRemoteControlsPage(remoteState),
+              // Page 2: Seek Screen
+              const SeekScreen(),
+              // Page 3: Media Selection
+              const MediaSelectionScreen(),
+            ],
           );
         },
       ),
+    );
+  }
+
+  Widget _buildRemoteControlsPage(RemoteState remoteState) {
+    final playback = remoteState.playbackState;
+    final isPlaying = playback.isPlaying;
+    final isMuted = playback.isMuted;
+    final volumeLevel = playback.volumeLevel;
+    final progress = playback.progress;
+    final positionTicks = playback.positionTicks;
+    final durationTicks = playback.durationTicks ?? 0;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Blurred background image
+        _buildBackground(playback.nowPlayingItemId),
+
+        // Playback progress ring (outer)
+        IgnorePointer(
+          child: PlaybackRing(
+            progress: progress,
+            strokeWidth: 6,
+            edgePadding: 4,
+          ),
+        ),
+
+        // Volume arc (top, inside playback ring) - make it non-interactive on this page
+        IgnorePointer(
+          child: VolumeArc(
+            volumeLevel: volumeLevel,
+            isMuted: isMuted,
+            handleRotary: false,
+            edgePadding: 14,
+          ),
+        ),
+
+        // Center content
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Timestamp
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _formatTime(positionTicks),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    Text(
+                      _formatTime(durationTicks),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: WearTheme.textSecondary,
+                          ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // Main control buttons row: Previous, Play/Pause, Next
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _ControlButton(
+                      icon: Icons.skip_previous,
+                      onTap: _skipPrevious,
+                      size: 32,
+                    ),
+                    const SizedBox(width: 12),
+                    _ControlButton(
+                      icon: isPlaying ? Icons.pause : Icons.play_arrow,
+                      onTap: _playPause,
+                      size: 44,
+                      highlighted: true,
+                    ),
+                    const SizedBox(width: 12),
+                    _ControlButton(
+                      icon: Icons.skip_next,
+                      onTap: _skipNext,
+                      size: 32,
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // Secondary controls row: CC, Audio, Stop
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _ControlButton(
+                      icon: Icons.closed_caption,
+                      onTap: _openSubtitleTracks,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 16),
+                    _ControlButton(
+                      icon: Icons.audiotrack,
+                      onTap: _openAudioTracks,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 16),
+                    _ControlButton(
+                      icon: Icons.stop,
+                      onTap: _stop,
+                      size: 24,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Volume active indicator (shows when adjusting volume)
+        if (_volumeActive)
+          Positioned(
+            top: 36,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: Text(
+                isMuted ? 'MUTED' : '$volumeLevel%',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: isMuted
+                      ? WearTheme.textSecondary
+                      : const Color(0xFFFFD700),
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -354,7 +378,7 @@ class _ControlButton extends StatelessWidget {
         child: IconButton(
           onPressed: onTap,
           icon: Icon(icon, size: size),
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(10),
           constraints: const BoxConstraints(),
         ),
       );
@@ -363,7 +387,7 @@ class _ControlButton extends StatelessWidget {
     return IconButton(
       onPressed: onTap,
       icon: Icon(icon, size: size),
-      padding: const EdgeInsets.all(4),
+      padding: const EdgeInsets.all(6),
       constraints: const BoxConstraints(),
     );
   }

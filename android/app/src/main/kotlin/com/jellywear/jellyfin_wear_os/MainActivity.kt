@@ -5,6 +5,8 @@ import androidx.wear.ambient.AmbientModeSupport
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import android.view.MotionEvent
+import com.samsung.wearable_rotary.WearableRotaryPlugin
 
 class MainActivity: FlutterFragmentActivity(), AmbientModeSupport.AmbientCallbackProvider {
     private val CHANNEL = "com.jellywear.jellyfin_wear_os/ongoing_activity"
@@ -12,6 +14,13 @@ class MainActivity: FlutterFragmentActivity(), AmbientModeSupport.AmbientCallbac
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AmbientModeSupport.attach(this)
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent?): Boolean {
+        return when {
+            WearableRotaryPlugin.onGenericMotionEvent(event) -> true
+            else -> super.onGenericMotionEvent(event)
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

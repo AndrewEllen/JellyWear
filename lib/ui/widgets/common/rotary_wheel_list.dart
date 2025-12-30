@@ -1,83 +1,42 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:wearable_rotary/wearable_rotary.dart';
 
-/// A Wear-style wheel list with center item scaling and rotary support.
+/// Wear-style scaling wheel list with rotary scrolling.
 ///
-/// Features:
-/// - Center item scales up (1.0), off-center items scale down and fade
-/// - Smooth pixel scrolling during touch/rotary
-/// - Snap to nearest item after 250ms idle
-/// - Medium haptic every ~60px of rotary scroll
-/// - Heavy haptic at boundaries with lockout
-///
-/// Usage:
-/// ```dart
-/// RotaryWheelList<MyType>(
-///   items: items,
-///   itemExtent: 84,
-///   onItemTap: (item, index) => ...,
-///   itemBuilder: (context, item, index, isCentered) => YourCard(...),
-/// )
-/// ```
+/// - Uses ListWheelScrollView (fixed item extent).
+/// - Rotary events scroll by pixels using jumpTo() with ClampingScrollPhysics.
+/// - After rotary stops (debounce), restores FixedExtentScrollPhysics and snaps to nearest item.
+/// - No ScrollEndNotification snapping (prevents animateToItem -> scroll end -> animate loop).
 class RotaryWheelList<T> extends StatefulWidget {
-  /// The list of items to display.
   final List<T> items;
-
-  /// Height of each wheel item.
   final double itemExtent;
 
-  /// Builds the inner content for each item.
-  /// The widget applies scaling/opacity and tap handling.
-  final Widget Function(
-    BuildContext context,
-    T item,
-    int index,
-    bool isCentered,
-  ) itemBuilder;
-
-  /// Called when the user taps an item.
+  final Widget Function(BuildContext context, T item, int index, bool isCentered) itemBuilder;
   final void Function(T item, int index)? onItemTap;
-
-  /// Called when the centered item changes (after snap).
   final void Function(T item, int index)? onCenteredItemChanged;
 
-  /// Optional external controller.
   final FixedExtentScrollController? controller;
 
-  /// Pixels to scroll per rotary detent.
+  // Rotary tuning
   final double rotaryScrollDeltaPx;
-
-  /// Pixels between medium haptic ticks during rotary.
   final double hapticTickEveryPx;
-
-  /// Duration to wait after rotary stops before snapping.
   final Duration rotaryDebounceDuration;
 
-  /// Minimum scale for off-center items.
+  // Scale/opacity tuning
   final double minScale;
-
-  /// Minimum opacity for off-center items.
   final double minOpacity;
-
-  /// How much scale drops per item distance from center.
   final double scaleDropPerItem;
-
-  /// How much opacity drops per item distance from center.
   final double opacityDropPerItem;
 
-  /// Diameter ratio for the wheel effect.
+  // Wheel tuning
   final double diameterRatio;
-
-  /// Perspective for the wheel effect.
   final double perspective;
 
-  /// Whether to show the edge scroll indicator.
+  // Optional (UI choice)
   final bool showScrollIndicator;
-
-  /// Initial item index to scroll to.
-  final int initialItem;
 
   const RotaryWheelList({
     super.key,
@@ -94,10 +53,9 @@ class RotaryWheelList<T> extends StatefulWidget {
     this.minOpacity = 0.5,
     this.scaleDropPerItem = 0.25,
     this.opacityDropPerItem = 0.5,
-    this.diameterRatio = 2.5,
-    this.perspective = 0.001,
-    this.showScrollIndicator = true,
-    this.initialItem = 0,
+    this.diameterRatio = 3.0,
+    this.perspective = 0.002,
+    this.showScrollIndicator = false,
   });
 
   @override
@@ -105,102 +63,116 @@ class RotaryWheelList<T> extends StatefulWidget {
 }
 
 class _RotaryWheelListState<T> extends State<RotaryWheelList<T>> {
-  late FixedExtentScrollController _controller;
-  late StreamSubscription<RotaryEvent> _rotarySubscription;
+  late final FixedExtentScrollController _controller =
+      widget.controller ?? FixedExtentScrollController();
+
+  late final StreamSubscription<RotaryEvent> _rotarySubscription;
 
   Timer? _rotaryDebounce;
+
+  // When false, we use ClampingScrollPhysics for smooth pixel rotary scrolling.
   bool _snapEnabled = true;
+
+  // Prevent repeated boundary haptics.
   bool _boundaryLock = false;
+
+  // Medium tick accumulation.
   double _pixelAccum = 0;
-  int _lastReportedIndex = -1;
+
+  // Prevent re-entrant snap calls.
+  bool _snapping = false;
 
   @override
   void initState() {
     super.initState();
 
-    _controller = widget.controller ??
-        FixedExtentScrollController(initialItem: widget.initialItem);
-
-    _controller.addListener(_onScrollUpdate);
-
-    _rotarySubscription = rotaryEvents.listen(_onRotaryEvent);
-  }
-
-  void _onScrollUpdate() {
-    if (!mounted) return;
-    setState(() {});
-  }
-
-  void _onRotaryEvent(RotaryEvent event) {
-    if (!_controller.hasClients) return;
-    if (widget.items.isEmpty) return;
-
-    final position = _controller.position;
-    if (position.maxScrollExtent <= 0) return;
-
-    // Disable snapping during rotary so scroll feels smooth
-    if (_snapEnabled) {
-      setState(() => _snapEnabled = false);
-    }
-
-    _rotaryDebounce?.cancel();
-
-    final int direction = event.direction == RotaryDirection.clockwise ? 1 : -1;
-
-    final double target =
-        (position.pixels + direction * widget.rotaryScrollDeltaPx)
-            .clamp(position.minScrollExtent, position.maxScrollExtent);
-
-    position.jumpTo(target);
-
-    // Haptic tick every N px
-    _pixelAccum += widget.rotaryScrollDeltaPx.abs();
-    if (_pixelAccum >= widget.hapticTickEveryPx) {
-      HapticFeedback.mediumImpact();
-      _pixelAccum = 0;
-    }
-
-    // Boundary bump with lockout
-    final bool atTop = target <= position.minScrollExtent + 1;
-    final bool atBottom = target >= position.maxScrollExtent - 1;
-
-    if ((atTop || atBottom) && !_boundaryLock) {
-      _boundaryLock = true;
-      HapticFeedback.heavyImpact();
-      Future.delayed(const Duration(milliseconds: 250), () {
-        _boundaryLock = false;
-      });
-    }
-
-    // When rotary stops: restore snapping + snap to nearest item
-    _rotaryDebounce = Timer(widget.rotaryDebounceDuration, () {
+    _controller.addListener(() {
       if (!mounted) return;
+      setState(() {});
+    });
 
-      if (!_snapEnabled) {
-        setState(() => _snapEnabled = true);
+    _rotarySubscription = rotaryEvents.listen((RotaryEvent event) {
+      if (!_controller.hasClients) return;
+      if (widget.items.isEmpty) return;
+
+      final position = _controller.position;
+      if (position.maxScrollExtent <= 0) return;
+
+      // During rotary, disable snapping physics to avoid jitter.
+      if (_snapEnabled) {
+        setState(() => _snapEnabled = false);
       }
-      _snapToNearestItem();
+
+      _rotaryDebounce?.cancel();
+
+      final int direction = event.direction == RotaryDirection.clockwise ? 1 : -1;
+
+      final double target = (position.pixels + direction * widget.rotaryScrollDeltaPx)
+          .clamp(position.minScrollExtent, position.maxScrollExtent);
+
+      position.jumpTo(target);
+
+      // Haptic tick
+      _pixelAccum += widget.rotaryScrollDeltaPx.abs();
+      if (_pixelAccum >= widget.hapticTickEveryPx) {
+        HapticFeedback.mediumImpact();
+        _pixelAccum = 0;
+      }
+
+      // Boundary bump
+      final bool atTop = target <= position.minScrollExtent + 1;
+      final bool atBottom = target >= position.maxScrollExtent - 1;
+
+      if ((atTop || atBottom) && !_boundaryLock) {
+        _boundaryLock = true;
+        HapticFeedback.heavyImpact();
+        Future.delayed(const Duration(milliseconds: 250), () {
+          _boundaryLock = false;
+        });
+      }
+
+      // Debounce: restore snapping + snap to nearest item.
+      _rotaryDebounce = Timer(widget.rotaryDebounceDuration, () {
+        if (!mounted) return;
+        if (!_snapEnabled) setState(() => _snapEnabled = true);
+        _snapToNearestItem();
+      });
     });
   }
 
   void _snapToNearestItem() {
+    if (_snapping) return;
     if (!_controller.hasClients) return;
     if (widget.items.isEmpty) return;
 
     final double offset = _controller.offset;
     final int nearestIndex =
-        (offset / widget.itemExtent).round().clamp(0, widget.items.length - 1);
+    (offset / widget.itemExtent).round().clamp(0, widget.items.length - 1);
 
-    _controller.animateToItem(
+    // If we’re already basically there, do nothing.
+    final int currentSelected = _safeSelectedItem();
+    if (currentSelected == nearestIndex) return;
+
+    _snapping = true;
+
+    _controller
+        .animateToItem(
       nearestIndex,
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
-    );
+    )
+        .whenComplete(() {
+      _snapping = false;
+    });
+  }
 
-    // Notify listener of centered item change
-    if (nearestIndex != _lastReportedIndex && nearestIndex < widget.items.length) {
-      _lastReportedIndex = nearestIndex;
-      widget.onCenteredItemChanged?.call(widget.items[nearestIndex], nearestIndex);
+  int _safeSelectedItem() {
+    try {
+      return _controller.selectedItem;
+    } catch (_) {
+      // selectedItem can throw if not attached yet.
+      final idx = (_controller.hasClients ? (_controller.offset / widget.itemExtent).round() : 0);
+      return idx.clamp(0, widget.items.length - 1);
     }
   }
 
@@ -209,17 +181,10 @@ class _RotaryWheelListState<T> extends State<RotaryWheelList<T>> {
     return _controller.offset / widget.itemExtent;
   }
 
-  double get _scrollProgress {
-    if (!_controller.hasClients || widget.items.length <= 1) return 0;
-    final centerIdx = _centerIndex();
-    return centerIdx / (widget.items.length - 1);
-  }
-
   @override
   void dispose() {
     _rotaryDebounce?.cancel();
     _rotarySubscription.cancel();
-    _controller.removeListener(_onScrollUpdate);
     if (widget.controller == null) {
       _controller.dispose();
     }
@@ -228,163 +193,74 @@ class _RotaryWheelListState<T> extends State<RotaryWheelList<T>> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.items.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
     final centerIndex = _centerIndex();
+
+    final ScrollPhysics physics =
+    _snapEnabled ? const FixedExtentScrollPhysics() : const ClampingScrollPhysics();
+
+    final wheel = ListWheelScrollView.useDelegate(
+      controller: _controller,
+      itemExtent: widget.itemExtent,
+      diameterRatio: widget.diameterRatio,
+      perspective: widget.perspective,
+      useMagnifier: false,
+      physics: physics,
+      onSelectedItemChanged: (index) {
+        if (index < 0 || index >= widget.items.length) return;
+        widget.onCenteredItemChanged?.call(widget.items[index], index);
+      },
+      childDelegate: ListWheelChildBuilderDelegate(
+        childCount: widget.items.length,
+        builder: (context, index) {
+          if (index < 0 || index >= widget.items.length) return null;
+
+          final distance = (index - centerIndex).abs();
+
+          final scale =
+          (1.0 - (distance * widget.scaleDropPerItem)).clamp(widget.minScale, 1.0);
+          final opacity =
+          (1.0 - (distance * widget.opacityDropPerItem)).clamp(widget.minOpacity, 1.0);
+
+          final isCentered = distance < 0.5;
+
+          return Transform.scale(
+            scale: scale,
+            child: Opacity(
+              opacity: opacity,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: widget.onItemTap == null
+                    ? null
+                    : () {
+                  HapticFeedback.lightImpact();
+                  widget.onItemTap!(widget.items[index], index);
+                },
+                child: widget.itemBuilder(context, widget.items[index], index, isCentered),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    if (!widget.showScrollIndicator) return wheel;
 
     return Stack(
       children: [
-        NotificationListener<ScrollEndNotification>(
-          onNotification: (notification) {
-            // For finger scrolling, snap when user stops
-            if (_snapEnabled) {
-              _snapToNearestItem();
-            }
-            return false;
-          },
-          child: ListWheelScrollView.useDelegate(
-            controller: _controller,
-            itemExtent: widget.itemExtent,
-            diameterRatio: widget.diameterRatio,
-            perspective: widget.perspective,
-            useMagnifier: false, // scaling handled manually
-            physics: _snapEnabled
-                ? const FixedExtentScrollPhysics()
-                : const ClampingScrollPhysics(),
-            onSelectedItemChanged: (index) {
-              if (index < 0 || index >= widget.items.length) return;
-              if (_snapEnabled && index != _lastReportedIndex) {
-                _lastReportedIndex = index;
-                widget.onCenteredItemChanged
-                    ?.call(widget.items[index], index);
-              }
-            },
-            childDelegate: ListWheelChildBuilderDelegate(
-              childCount: widget.items.length,
-              builder: (context, index) {
-                if (index < 0 || index >= widget.items.length) return null;
-
-                final distanceFromCenter = (index - centerIndex).abs();
-                final scale = (1.0 - (distanceFromCenter * widget.scaleDropPerItem))
-                    .clamp(widget.minScale, 1.0);
-                final opacity =
-                    (1.0 - (distanceFromCenter * widget.opacityDropPerItem))
-                        .clamp(widget.minOpacity, 1.0);
-
-                final isCentered = distanceFromCenter < 0.5;
-
-                return Transform.scale(
-                  scale: scale,
-                  child: Opacity(
-                    opacity: opacity,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: widget.onItemTap == null
-                          ? null
-                          : () {
-                              HapticFeedback.lightImpact();
-                              widget.onItemTap!(widget.items[index], index);
-                            },
-                      child: widget.itemBuilder(
-                        context,
-                        widget.items[index],
-                        index,
-                        isCentered,
-                      ),
-                    ),
-                  ),
-                );
-              },
+        wheel,
+        Positioned(
+          right: 6,
+          top: 18,
+          bottom: 18,
+          child: Container(
+            width: 3,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
         ),
-        // Scroll indicator
-        if (widget.showScrollIndicator && widget.items.length > 1)
-          Positioned.fill(
-            child: IgnorePointer(
-              child: CustomPaint(
-                painter: _WheelScrollIndicatorPainter(
-                  progress: _scrollProgress.clamp(0.0, 1.0),
-                ),
-              ),
-            ),
-          ),
       ],
     );
-  }
-}
-
-/// Simple scroll indicator painter for the wheel list.
-class _WheelScrollIndicatorPainter extends CustomPainter {
-  final double progress;
-
-  _WheelScrollIndicatorPainter({required this.progress});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 4;
-
-    // Track arc at the right edge
-    const startAngle = -0.4; // ~-23 degrees from right
-    const sweepAngle = 0.8; // ~46 degrees total
-
-    final trackPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.2)
-      ..strokeWidth = 4
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      startAngle,
-      sweepAngle,
-      false,
-      trackPaint,
-    );
-
-    // Thumb indicator
-    final thumbAngle = startAngle + sweepAngle * progress;
-    final thumbX = center.dx + radius * _cos(thumbAngle);
-    final thumbY = center.dy + radius * _sin(thumbAngle);
-
-    final thumbPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-
-    canvas.drawCircle(Offset(thumbX, thumbY), 4, thumbPaint);
-  }
-
-  double _cos(double radians) => radians.isNaN ? 1 : _cosine(radians);
-  double _sin(double radians) => radians.isNaN ? 0 : _sine(radians);
-
-  // Simple cos/sin without importing dart:math
-  double _cosine(double x) {
-    // Taylor series approximation isn't ideal, use identity
-    // cos(x) = sin(x + pi/2)
-    return _sine(x + 1.5707963267948966);
-  }
-
-  double _sine(double x) {
-    // Normalize to [-pi, pi]
-    const twoPi = 6.283185307179586;
-    const pi = 3.141592653589793;
-    x = x % twoPi;
-    if (x > pi) x -= twoPi;
-    if (x < -pi) x += twoPi;
-
-    // Taylor series for sin
-    final x2 = x * x;
-    final x3 = x2 * x;
-    final x5 = x3 * x2;
-    final x7 = x5 * x2;
-    return x - x3 / 6 + x5 / 120 - x7 / 5040;
-  }
-
-  @override
-  bool shouldRepaint(covariant _WheelScrollIndicatorPainter oldDelegate) {
-    return oldDelegate.progress != progress;
   }
 }
