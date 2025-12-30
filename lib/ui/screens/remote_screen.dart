@@ -287,24 +287,6 @@ class _RemoteScreenState extends State<RemoteScreen> {
     return '$minutes:${(seconds % 60).toString().padLeft(2, '0')}';
   }
 
-  void _syncVolumePreview(int volumeLevel) {
-    final preview = _volumePreviewLevel;
-    if (preview != null && (volumeLevel - preview).abs() <= 1) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        final current = context.read<RemoteState>().playbackState.volumeLevel;
-        final p = _volumePreviewLevel;
-        if (p != null && (current - p).abs() <= 1) {
-          _volumePreviewFailsafeTimer?.cancel();
-          setState(() {
-            _volumePreviewLevel = null;
-            _volumeTargetLevel = null;
-          });
-        }
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -364,8 +346,23 @@ class _RemoteScreenState extends State<RemoteScreen> {
     final positionTicks = playback.positionTicks;
     final durationTicks = playback.durationTicks ?? 0;
 
-    // Volume preview sync logic
-    _syncVolumePreview(volumeLevel);
+    // If playback has caught up to the preview, release preview/target.
+    final preview = _volumePreviewLevel;
+    if (preview != null && (volumeLevel - preview).abs() <= 1) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+
+        final current = context.read<RemoteState>().playbackState.volumeLevel;
+        final p = _volumePreviewLevel;
+        if (p != null && (current - p).abs() <= 1) {
+          _volumePreviewFailsafeTimer?.cancel();
+          setState(() {
+            _volumePreviewLevel = null;
+            _volumeTargetLevel = null;
+          });
+        }
+      });
+    }
 
     final size = MediaQuery.sizeOf(context);
     final gridSize = size.shortestSide * _gridSizeRatio;
@@ -386,7 +383,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
               ? _VolumeRing(
                   volume: displayVolumeLevel,
                   isMuted: isMutedLike,
-                  strokeWidth: 8,
+                  strokeWidth: 6,
                   edgePadding: 4,
                 )
               : PlaybackRing(
@@ -460,10 +457,14 @@ class _RemoteScreenState extends State<RemoteScreen> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          _formatTime(positionTicks),
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
+        FittedBox(
+          child: Text(
+            _formatTime(positionTicks),
+            maxLines: 1,
+            overflow: TextOverflow.visible,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
         Text(
@@ -487,7 +488,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
     return _ControlButton(
       icon: isPlaying ? Icons.pause : Icons.play_arrow,
       onTap: _playPause,
-      size: 44,
+      size: 54,
       highlighted: true,
     );
   }
@@ -557,7 +558,7 @@ class _ControlButton extends StatelessWidget {
         child: IconButton(
           onPressed: onTap,
           icon: Icon(icon, size: size),
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(0),
           constraints: const BoxConstraints(),
         ),
       );
