@@ -28,26 +28,31 @@ Easily manage what's playing without reaching for your phone or TV remote.
 
 [Jellyfin](https://jellyfin.org/) is a free, open-source media server that lets you collect, manage, and stream your media. JellyWear connects to your Jellyfin server, giving you control over your content right from your wrist.
 
-**Don't have a server yet?** Check out the [Jellyfin website](https://jellyfin.org/) to learn how to set one up — it's free and runs on almost anything!
+**Don't have a server yet?** Check out the [Jellyfin website](https://jellyfin.org/) to learn how to set one up. It's free and runs on almost anything!
 
 ---
 
 ## FAQ
 
-**Q: Do I need a Jellyfin server to use this app?**
-A: Yes! JellyWear is a companion app that connects to your existing Jellyfin server. It doesn't host or store any media itself.
+**Do I need a Jellyfin server to use this app?**
 
-**Q: Can I watch videos on my watch?**
-A: JellyWear is designed for remote control and browsing. While you can start playback, the video will play on your connected Jellyfin client (TV, phone, etc.), not on the watch itself.
+Yes! JellyWear is a companion app that connects to your existing Jellyfin server. It doesn't host or store any media itself.
 
-**Q: Which Jellyfin clients can I control?**
-A: You can control any active Jellyfin session on your server — including Jellyfin Media Player, web browser, Android TV, and more.
+**Can I watch videos on my watch?**
 
-**Q: Does this work offline?**
-A: No, JellyWear requires a network connection to communicate with your Jellyfin server.
+JellyWear is designed for remote control and browsing. While you can start playback, the video will play on your connected Jellyfin client (TV, phone, etc.), not on the watch itself.
 
-**Q: Is this an official Jellyfin app?**
-A: No, JellyWear is an independent project and is not affiliated with the Jellyfin team.
+**Which Jellyfin clients can I control?**
+
+You can control any active Jellyfin session on your server, including Jellyfin Media Player, web browser, Android TV, and more.
+
+**Does this work offline?**
+
+No, JellyWear requires a network connection to communicate with your Jellyfin server.
+
+**Is this an official Jellyfin app?**
+
+No, JellyWear is an independent project and is not affiliated with the Jellyfin team.
 
 ---
 
