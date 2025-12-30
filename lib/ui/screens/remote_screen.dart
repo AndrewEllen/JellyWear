@@ -8,7 +8,6 @@ import 'package:provider/provider.dart';
 import 'package:wearable_rotary/wearable_rotary.dart';
 
 import '../../core/services/hardware_button_service.dart';
-import '../../core/services/ongoing_activity_service.dart';
 import '../../core/theme/wear_theme.dart';
 import '../../data/repositories/library_repository.dart';
 import '../../navigation/app_router.dart';
@@ -88,7 +87,6 @@ class _RemoteScreenState extends State<RemoteScreen> {
   @override
   void initState() {
     super.initState();
-    OngoingActivityService.start(title: 'Jellyfin Remote');
 
     _pageController = PageController(initialPage: 0);
 
@@ -100,11 +98,9 @@ class _RemoteScreenState extends State<RemoteScreen> {
     // Subscribe to rotary for volume control on page 0
     _volumeRotarySubscription = rotaryEvents.listen(_onVolumeRotaryEvent);
 
-    // Subscribe to hardware button for play/pause
+    // Subscribe to hardware button for play/pause (any stem button)
     _buttonSubscription = HardwareButtonService.stemButtonEvents.listen((button) {
-      if (button == 1) {
-        _playPause();
-      }
+      _playPause();
     });
   }
 
@@ -116,7 +112,6 @@ class _RemoteScreenState extends State<RemoteScreen> {
     _volumePreviewFailsafeTimer?.cancel();
     _buttonSubscription?.cancel();
     _pageController.dispose();
-    OngoingActivityService.stop();
     super.dispose();
   }
 

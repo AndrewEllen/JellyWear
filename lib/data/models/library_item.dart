@@ -18,6 +18,7 @@ class LibraryItem {
   final String? imagePrimaryTag;
   final String? imageBackdropTag;
   final double? communityRating;
+  final int? playbackPositionTicks;
 
   const LibraryItem({
     required this.id,
@@ -36,6 +37,7 @@ class LibraryItem {
     this.imagePrimaryTag,
     this.imageBackdropTag,
     this.communityRating,
+    this.playbackPositionTicks,
   });
 
   /// Whether this item can be played directly.
@@ -103,6 +105,7 @@ class LibraryItem {
     final artists = json['Artists'] as List<dynamic>?;
     final imageTags = json['ImageTags'] as Map<String, dynamic>?;
     final backdropTags = json['BackdropImageTags'] as List<dynamic>?;
+    final userData = json['UserData'] as Map<String, dynamic>?;
 
     return LibraryItem(
       id: (json['Id'] ?? '').toString(),
@@ -123,6 +126,7 @@ class LibraryItem {
           ? backdropTags!.first?.toString()
           : null,
       communityRating: (json['CommunityRating'] as num?)?.toDouble(),
+      playbackPositionTicks: userData?['PlaybackPositionTicks'] as int?,
     );
   }
 

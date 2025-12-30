@@ -236,10 +236,11 @@ class LibraryRepository {
         '/Users/$userId/Items/Resume',
         queryParameters: {
           'limit': limit,
-          'fields': 'Overview,PrimaryImageAspectRatio',
+          'fields': 'Overview,PrimaryImageAspectRatio,UserData',
           'imageTypeLimit': 1,
           'enableImageTypes': 'Primary,Backdrop,Thumb',
           'mediaTypes': 'Video',
+          'enableUserData': true,
         },
       );
 

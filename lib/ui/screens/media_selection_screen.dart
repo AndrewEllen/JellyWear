@@ -84,7 +84,10 @@ class _MediaSelectionScreenState extends State<MediaSelectionScreen> {
           backgroundUrl: bgUrl,
           onPlay: () async {
             HapticFeedback.mediumImpact();
-            await context.read<SessionState>().playOnTarget([item.id]);
+            await context.read<SessionState>().playOnTarget(
+              [item.id],
+              startPositionTicks: item.playbackPositionTicks,
+            );
             if (Navigator.canPop(context)) Navigator.pop(context);
             if (Navigator.canPop(context)) Navigator.pop(context);
           },
@@ -1190,6 +1193,7 @@ class _JellyfinHttp {
 
   static LibraryItem _libraryItemFromJson(dynamic e) {
     final m = (e as Map).cast<String, dynamic>();
+    final userData = (m['UserData'] as Map?)?.cast<String, dynamic>();
 
     return LibraryItem(
       id: (m['Id'] ?? '') as String,
@@ -1210,6 +1214,7 @@ class _JellyfinHttp {
           ? ((m['BackdropImageTags'] as List).first as String?)
           : null,
       communityRating: (m['CommunityRating'] as num?)?.toDouble(),
+      playbackPositionTicks: userData?['PlaybackPositionTicks'] as int?,
     );
   }
 }

@@ -8,7 +8,9 @@
       "Bash(flutter analyze:*)",
       "Bash(cat:*)",
       "Bash(flutter pub deps:*)",
-      "Bash(flutter build:*)"
+      "Bash(flutter build:*)",
+      "Bash(tree:*)",
+      "Bash(grep:*)"
     ]
   }
 }

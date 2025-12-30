@@ -67,9 +67,13 @@ class SessionState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> playOnTarget(List<String> itemIds) async {
+  Future<bool> playOnTarget(List<String> itemIds, {int? startPositionTicks}) async {
     if (_targetSession == null) return false;
-    return _repository.play(sessionId: _targetSession!.sessionId, itemIds: itemIds);
+    return _repository.play(
+      sessionId: _targetSession!.sessionId,
+      itemIds: itemIds,
+      startPositionTicks: startPositionTicks,
+    );
   }
 
   Future<bool> queueNextOnTarget(List<String> itemIds) async {

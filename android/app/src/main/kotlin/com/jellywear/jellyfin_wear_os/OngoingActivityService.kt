@@ -44,7 +44,7 @@ class OngoingActivityService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val title = intent?.getStringExtra("title") ?: "Jellyfin Remote"
         startForegroundWithOngoingActivity(title)
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun createNotificationChannel() {
@@ -67,7 +67,7 @@ class OngoingActivityService : Service() {
             this,
             0,
             Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
