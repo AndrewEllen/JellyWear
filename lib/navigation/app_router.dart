@@ -12,10 +12,12 @@ import '../ui/screens/seek_screen.dart';
 import '../ui/screens/track_picker_screen.dart';
 import '../ui/screens/media_selection_screen.dart';
 import '../ui/screens/settings_screen.dart';
+import '../ui/screens/notification_permission_screen.dart';
 
 /// Named routes for the application.
 abstract class AppRoutes {
   static const String splash = '/';
+  static const String notificationPermission = '/notification-permission';
   static const String serverList = '/servers';
   static const String manualServer = '/servers/manual';
   static const String login = '/login';
@@ -36,6 +38,10 @@ class AppRouter {
     switch (settings.name) {
       case AppRoutes.splash:
         return _buildRoute(const SplashScreen(), settings);
+
+      case AppRoutes.notificationPermission:
+        final args = settings.arguments as NotificationPermissionArgs?;
+        return _buildRoute(NotificationPermissionScreen(args: args), settings);
 
       case AppRoutes.serverList:
         return _buildRoute(const ServerListScreen(), settings);

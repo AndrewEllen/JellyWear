@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/wear_theme.dart';
 import '../../core/utils/watch_shape.dart';
@@ -17,6 +18,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _hapticEnabled = true;
+  bool _notificationsEnabled = false;
 
   @override
   void initState() {
@@ -27,8 +29,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     final settingsRepo = context.read<SettingsRepository>();
     final haptic = await settingsRepo.getHapticFeedbackEnabled();
+    final notificationStatus = await Permission.notification.status;
     if (mounted) {
-      setState(() => _hapticEnabled = haptic);
+      setState(() {
+        _hapticEnabled = haptic;
+        _notificationsEnabled = notificationStatus.isGranted;
+      });
     }
   }
 
@@ -36,6 +42,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _hapticEnabled = value);
     final settingsRepo = context.read<SettingsRepository>();
     await settingsRepo.setHapticFeedbackEnabled(value);
+  }
+
+  Future<void> _openNotificationSettings() async {
+    await openAppSettings();
+    // Refresh status when returning
+    if (mounted) {
+      final status = await Permission.notification.status;
+      setState(() => _notificationsEnabled = status.isGranted);
+    }
   }
 
   Future<void> _logout() async {
@@ -64,6 +79,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildHeader(context, padding),
           // Haptic feedback toggle
           _buildHapticToggle(context, padding),
+          // Notification permission
+          _buildNotificationPermission(context, padding),
           // Server info
           _buildServerInfo(context, padding, appState),
           // Logout
@@ -133,6 +150,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: _toggleHaptic,
                   activeTrackColor: WearTheme.jellyfinPurple,
                 ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotificationPermission(BuildContext context, EdgeInsets padding) {
+    return SizedBox(
+      height: MediaQuery.of(context).size.height,
+      child: Center(
+        child: Padding(
+          padding: padding,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: WearTheme.surface,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Notifications',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          Text(
+                            _notificationsEnabled ? 'Enabled' : 'Disabled',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: _notificationsEnabled
+                                      ? Colors.green
+                                      : WearTheme.textSecondary,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      _notificationsEnabled
+                          ? Icons.check_circle
+                          : Icons.error_outline,
+                      size: 24,
+                      color: _notificationsEnabled
+                          ? Colors.green
+                          : WearTheme.textSecondary,
+                    ),
+                  ],
+                ),
+                if (!_notificationsEnabled) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: _openNotificationSettings,
+                      child: const Text('Open Settings'),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

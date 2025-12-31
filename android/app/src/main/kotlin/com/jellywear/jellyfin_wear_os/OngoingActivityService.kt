@@ -78,7 +78,7 @@ class OngoingActivityService : Service() {
         val notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText("Tap to return to remote")
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setContentIntent(pendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -89,7 +89,7 @@ class OngoingActivityService : Service() {
             .build()
 
         val ongoingActivity = OngoingActivity.Builder(applicationContext, NOTIFICATION_ID, notificationBuilder)
-            .setStaticIcon(android.R.drawable.ic_media_play)
+            .setStaticIcon(R.drawable.ic_launcher_monochrome)
             .setTouchIntent(pendingIntent)
             .setStatus(ongoingActivityStatus)
             .build()
